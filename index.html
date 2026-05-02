@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Marineo Thief Run</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at top, #19304e 0%, #08111d 45%, #02050a 100%);
+        font-family: monospace;
+        color: #f4f2e8;
+      }
+      canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+      }
+      #hud {
+        position: fixed;
+        top: 14px;
+        left: 14px;
+        z-index: 2;
+        padding: 10px 12px;
+        border: 2px solid rgba(255, 255, 255, 0.2);
+        background: rgba(6, 10, 20, 0.55);
+        text-transform: uppercase;
+        font-size: 13px;
+        line-height: 1.45;
+        letter-spacing: 0.06em;
+        text-shadow: 0 1px 0 #000;
+      }
+      #message {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 2;
+        padding: 16px 22px;
+        border: 3px solid #f6d36d;
+        background: rgba(14, 16, 24, 0.85);
+        color: #fff4cc;
+        font-size: clamp(26px, 4vw, 56px);
+        letter-spacing: 0.12em;
+        opacity: 0;
+        transition: opacity 0.35s ease;
+        pointer-events: none;
+        text-align: center;
+      }
+      #tweet-link {
+        position: fixed;
+        top: calc(50% + 76px);
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 3;
+        display: none;
+        padding: 10px 14px;
+        border: 2px solid #f6d36d;
+        background: #101827;
+        color: #fff4cc;
+        font-size: 16px;
+        text-decoration: none;
+      }
+      #thanks-link {
+        position: fixed;
+        top: calc(50% + 76px);
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 3;
+        display: none;
+        padding: 10px 14px;
+        border: 2px solid #f6d36d;
+        background: #101827;
+        color: #fff4cc;
+        font-size: 14px;
+        text-decoration: none;
+        text-align: center;
+        white-space: nowrap;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+    <div id="hud"></div>
+    <div id="message">STAGE CLEAR</div>
+    <a id="tweet-link" href="#" target="_blank" rel="noopener noreferrer">TWEET SCORE</a>
+    <a id="thanks-link" href="https://buymeacoffee.com/kgninja" target="_blank" rel="noopener noreferrer">THANKS FOR PLAYING - BUY ME A COFFEE</a>
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+      const message = document.getElementById("message");
+      const tweetLink = document.getElementById("tweet-link");
+      const thanksLink = document.getElementById("thanks-link");
+      let audioContext = null;
+      let audioEnabled = false;
+
+      function ensureAudio() {
+        if (!audioContext) {
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioContext.state === "suspended") {
+          audioContext.resume();
+        }
+        audioEnabled = true;
+      }
+
+      function playTone(type, frequency, duration, gain, slideTo) {
+        if (!audioEnabled || !audioContext) return;
+        const now = audioContext.currentTime;
+        const osc = audioContext.createOscillator();
+        const amp = audioContext.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(frequency, now);
+        if (slideTo != null) {
+          osc.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), now + duration);
+        }
+        amp.gain.setValueAtTime(gain, now);
+        amp.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+        osc.connect(amp);
+        amp.connect(audioContext.destination);
+        osc.start(now);
+        osc.stop(now + duration + 0.02);
+      }
+
+      function playJumpSound() {
+        playTone("square", 300, 0.09, 0.05, 430);
+      }
+
+      function playStompSound() {
+        playTone("sawtooth", 120, 0.12, 0.05, 62);
+      }
+
+      function playCoinSound() {
+        playTone("triangle", 1760, 0.05, 0.04, 2400);
+        playTone("square", 2480, 0.03, 0.02, 3200);
+      }
+
+      function playTimeChime() {
+        playTone("triangle", 880, 0.06, 0.035, 1320);
+        playTone("square", 1760, 0.04, 0.018, 1320);
+      }
+
+      function playBrakeSound() {
+        if (!audioEnabled || !audioContext) return;
+        const now = audioContext.currentTime;
+        const noise = audioContext.createBufferSource();
+        const buffer = audioContext.createBuffer(1, Math.floor(audioContext.sampleRate * 0.08), audioContext.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < data.length; i++) {
+          data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+        }
+        const filter = audioContext.createBiquadFilter();
+        const amp = audioContext.createGain();
+        filter.type = "bandpass";
+        filter.frequency.setValueAtTime(900, now);
+        filter.frequency.exponentialRampToValueAtTime(240, now + 0.08);
+        amp.gain.setValueAtTime(0.035, now);
+        amp.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+        noise.buffer = buffer;
+        noise.connect(filter);
+        filter.connect(amp);
+        amp.connect(audioContext.destination);
+        noise.start(now);
+        noise.stop(now + 0.09);
+      }
+
+      function playJetMetalSound() {
+        if (!audioEnabled || !audioContext) return;
+        const now = audioContext.currentTime;
+        const noise = audioContext.createBufferSource();
+        const buffer = audioContext.createBuffer(1, Math.floor(audioContext.sampleRate * 0.22), audioContext.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < data.length; i++) {
+          data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+        }
+        const filter = audioContext.createBiquadFilter();
+        const amp = audioContext.createGain();
+        filter.type = "highpass";
+        filter.frequency.setValueAtTime(1800, now);
+        filter.frequency.exponentialRampToValueAtTime(4200, now + 0.18);
+        amp.gain.setValueAtTime(0.0001, now);
+        amp.gain.exponentialRampToValueAtTime(0.055, now + 0.035);
+        amp.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+        noise.buffer = buffer;
+        noise.connect(filter);
+        filter.connect(amp);
+        amp.connect(audioContext.destination);
+        noise.start(now);
+        noise.stop(now + 0.24);
+        playTone("sawtooth", 720, 0.12, 0.025, 1320);
+        playTone("square", 1440, 0.08, 0.018, 960);
+      }
+
+      function playMissJingle() {
+        if (!audioEnabled || !audioContext) return;
+        const notes = [
+          [659.25, 0.1],
+          [523.25, 0.1],
+          [587.33, 0.1],
+          [440.0, 0.18]
+        ];
+        let offset = 0;
+        for (const [freq, dur] of notes) {
+          const now = audioContext.currentTime + offset;
+          const osc = audioContext.createOscillator();
+          const amp = audioContext.createGain();
+          osc.type = "square";
+          osc.frequency.setValueAtTime(freq, now);
+          amp.gain.setValueAtTime(0.07, now);
+          amp.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+          osc.connect(amp);
+          amp.connect(audioContext.destination);
+          osc.start(now);
+          osc.stop(now + dur + 0.02);
+          offset += dur * 0.9;
+        }
+        playTone("triangle", 220, 0.22, 0.03, 110);
+      }
+      const atlas = new Image();
+      atlas.src = "assets/gpt-image-2-sheet.png";
+      const playerSheet = new Image();
+      playerSheet.src = "assets/player-animation-sheet-transparent.png";
+      const spriteCache = {};
+      let atlasReady = false;
+      let playerSheetReady = false;
+      atlas.onload = () => {
+        atlasReady = true;
+        buildSpriteCache();
+      };
+      playerSheet.onload = () => {
+        playerSheetReady = true;
+      };
+
+      function cropToTransparentSource(sx, sy, sw, sh, pad = 0) {
+        const source = document.createElement("canvas");
+        source.width = sw + pad * 2;
+        source.height = sh + pad * 2;
+        const sctx = source.getContext("2d");
+        sctx.drawImage(atlas, sx, sy, sw, sh, pad, pad, sw, sh);
+        return source;
+      }
+
+      function cropPlayerFrame(col, row) {
+        const frameW = Math.floor(playerSheet.naturalWidth / 4);
+        const frameH = Math.floor(playerSheet.naturalHeight / 3);
+        const source = document.createElement("canvas");
+        source.width = frameW;
+        source.height = frameH;
+        const sctx = source.getContext("2d");
+        sctx.drawImage(playerSheet, col * frameW, row * frameH, frameW, frameH, 0, 0, frameW, frameH);
+
+        const image = sctx.getImageData(0, 0, frameW, frameH);
+        const data = image.data;
+        let minX = frameW;
+        let minY = frameH;
+        let maxX = 0;
+        let maxY = 0;
+        for (let y = 0; y < frameH; y++) {
+          for (let x = 0; x < frameW; x++) {
+            const i = (y * frameW + x) * 4;
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            const neutral = Math.max(r, g, b) - Math.min(r, g, b) < 18;
+            if ((r > 225 && g > 225 && b > 225 && neutral) || (r > 245 && g > 245 && b > 245)) {
+              data[i + 3] = 0;
+            } else if (data[i + 3] > 8) {
+              minX = Math.min(minX, x);
+              minY = Math.min(minY, y);
+              maxX = Math.max(maxX, x);
+              maxY = Math.max(maxY, y);
+            }
+          }
+        }
+        sctx.putImageData(image, 0, 0);
+        if (minX > maxX || minY > maxY) return source;
+
+        const pad = 8;
+        const cropX = Math.max(0, minX - pad);
+        const cropY = Math.max(0, minY - pad);
+        const cropW = Math.min(frameW - cropX, maxX - minX + pad * 2);
+        const cropH = Math.min(frameH - cropY, maxY - minY + pad * 2);
+        const output = document.createElement("canvas");
+        output.width = cropW;
+        output.height = cropH;
+        output.getContext("2d").drawImage(source, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+        return output;
+      }
+
+      function buildPlayerAnimationCache() {
+        spriteCache.playerRunRight = [0, 1, 2, 3].map((col) => cropPlayerFrame(col, 0));
+        spriteCache.playerRunLeft = [0, 1, 2, 3].map((col) => cropPlayerFrame(col, 1));
+        spriteCache.playerJumpRight = [cropPlayerFrame(0, 2), cropPlayerFrame(1, 2)];
+        spriteCache.playerJumpLeft = [cropPlayerFrame(2, 2), cropPlayerFrame(3, 2)];
+        spriteCache.playerIdleRight = spriteCache.playerRunRight[0];
+        spriteCache.playerIdleLeft = spriteCache.playerRunLeft[0];
+      }
+
+      function buildSpriteCache() {
+        if (!atlasReady) return;
+        spriteCache.playerIdle = cropToTransparentSource(0, 0, 540, 470, 6);
+        spriteCache.playerRun = [
+          cropToTransparentSource(0, 110, 540, 470, 6),
+          cropToTransparentSource(0, 220, 540, 470, 6),
+          cropToTransparentSource(0, 330, 540, 470, 6),
+          cropToTransparentSource(0, 440, 540, 470, 6)
+        ];
+        spriteCache.playerJump = cropToTransparentSource(0, 220, 540, 470, 6);
+        spriteCache.playerFall = cropToTransparentSource(0, 440, 540, 470, 6);
+        spriteCache.rat = cropToTransparentSource(650, 35, 360, 170, 6);
+        spriteCache.bandit = cropToTransparentSource(850, 140, 260, 220, 6);
+        spriteCache.guard = cropToTransparentSource(930, 290, 300, 250, 6);
+        spriteCache.coin = cropToTransparentSource(940, 700, 90, 90, 4);
+        spriteCache.flag = cropToTransparentSource(905, 700, 165, 190, 4);
+        spriteCache.ground = cropToTransparentSource(0, 520, 420, 160, 0);
+        spriteCache.platform = cropToTransparentSource(0, 625, 430, 120, 0);
+        spriteCache.sky = cropToTransparentSource(0, 930, 1254, 324, 0);
+      }
+      function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
+      window.addEventListener("resize", resize);
+      resize();
+
+      const keys = { left: false, right: false, jump: false };
+      window.addEventListener("keydown", (event) => {
+        ensureAudio();
+        switch (event.code) {
+          case "ArrowLeft":
+          case "KeyA":
+            keys.left = true;
+            break;
+          case "ArrowRight":
+          case "KeyD":
+            keys.right = true;
+            break;
+          case "ArrowUp":
+          case "Space":
+          case "KeyW":
+            keys.jump = true;
+            break;
+          case "KeyR":
+            resetGame();
+            break;
+        }
+      });
+      window.addEventListener("keyup", (event) => {
+        switch (event.code) {
+          case "ArrowLeft":
+          case "KeyA":
+            keys.left = false;
+            break;
+          case "ArrowRight":
+          case "KeyD":
+            keys.right = false;
+            break;
+          case "ArrowUp":
+          case "Space":
+          case "KeyW":
+            keys.jump = false;
+            break;
+        }
+      });
+
+      const platforms = [
+        { x: -320, y: 380, w: 1320, h: 44, type: "ground" },
+        { x: -20, y: 214, w: 140, h: 24, type: "ground" },
+        { x: -60, y: 332, w: 260, h: 18, type: "stone" },
+        { x: 180, y: 350, w: 110, h: 18, type: "stone" },
+        { x: 370, y: 328, w: 120, h: 18, type: "stone" },
+        { x: 570, y: 346, w: 130, h: 18, type: "stone" },
+        { x: 760, y: 306, w: 120, h: 18, type: "stone" },
+        { x: 950, y: 342, w: 140, h: 18, type: "stone" },
+        { x: 1180, y: 300, w: 140, h: 18, type: "stone" },
+        { x: 1370, y: 320, w: 120, h: 18, type: "stone" },
+        { x: 1560, y: 288, w: 140, h: 18, type: "stone" },
+        { x: 1760, y: 332, w: 150, h: 18, type: "stone" },
+        { x: 1960, y: 290, w: 140, h: 18, type: "stone" },
+        { x: 2160, y: 346, w: 150, h: 18, type: "stone" },
+        { x: 2360, y: 304, w: 140, h: 18, type: "stone" },
+        { x: 2550, y: 322, w: 140, h: 18, type: "stone" },
+        { x: 2740, y: 286, w: 160, h: 18, type: "stone" },
+        { x: 2940, y: 320, w: 150, h: 18, type: "stone" },
+        { x: 3140, y: 278, w: 150, h: 18, type: "stone" },
+        { x: 3340, y: 334, w: 150, h: 18, type: "stone" },
+        { x: 3540, y: 296, w: 160, h: 18, type: "stone" },
+        { x: 3740, y: 322, w: 150, h: 18, type: "stone" },
+        { x: 4020, y: 380, w: 520, h: 44, type: "ground" }
+      ];
+
+      const coins = [
+        { x: 210, y: 320, collected: false },
+        { x: 390, y: 298, collected: false },
+        { x: 590, y: 316, collected: false },
+        { x: 790, y: 276, collected: false },
+        { x: 980, y: 312, collected: false },
+        { x: 1210, y: 270, collected: false },
+        { x: 1400, y: 290, collected: false },
+        { x: 1590, y: 258, collected: false },
+        { x: 1780, y: 302, collected: false },
+        { x: 1980, y: 260, collected: false },
+        { x: 2190, y: 316, collected: false },
+        { x: 2390, y: 274, collected: false },
+        { x: 2580, y: 292, collected: false },
+        { x: 2770, y: 256, collected: false },
+        { x: 2970, y: 290, collected: false },
+        { x: 3170, y: 248, collected: false },
+        { x: 3370, y: 304, collected: false },
+        { x: 3570, y: 266, collected: false },
+        { x: 3770, y: 292, collected: false }
+      ];
+
+      const enemies = [
+        { x: 610, y: 352, w: 30, h: 28, dir: -1, alive: true, xStart: 570, xEnd: 720, kind: "rat" },
+        { x: 1250, y: 272, w: 30, h: 28, dir: 1, alive: true, xStart: 1188, xEnd: 1288, kind: "bandit" },
+        { x: 1830, y: 304, w: 30, h: 28, dir: 1, alive: true, xStart: 1768, xEnd: 1888, kind: "rat" },
+        { x: 2410, y: 276, w: 30, h: 28, dir: -1, alive: true, xStart: 2368, xEnd: 2470, kind: "bandit" },
+        { x: 3030, y: 292, w: 30, h: 28, dir: 1, alive: true, xStart: 2948, xEnd: 3068, kind: "guard" },
+        { x: 3610, y: 268, w: 30, h: 28, dir: -1, alive: true, xStart: 3548, xEnd: 3670, kind: "guard" }
+      ];
+
+      const flag = { x: 4100, y: 380, h: 140 };
+        const player = {
+          x: 10,
+          y: 182,
+        w: 28,
+        h: 32,
+        vx: 0,
+          facing: 1,
+          vy: 0,
+        onGround: false,
+        dying: false,
+        deathTimer: 0,
+          animTime: 0,
+          stepCycle: 0,
+          landFlash: 0,
+          spawnIntro: false,
+          deathPhase: 0,
+          deathHold: 0,
+          missSoundPlayed: false,
+          missVisualTimer: 0,
+          missGameOver: false
+        };
+
+      let score = 0;
+      let gameWon = false;
+      let lives = 5;
+      let gameOver = false;
+      let brakeSoundCooldown = 0;
+      let jetSoundCooldown = 0;
+      let timeLeft = 60;
+      let lastChimeSecond = 60;
+      let lastTime = performance.now();
+      const gravity = 1500;
+      const groundMoveSpeed = 1500;
+      const airMoveSpeed = 900;
+      const jumpSpeed = 640;
+      const groundFriction = 0.94;
+      const airFriction = 0.985;
+      const maxSpeed = 1250;
+      const CAMERA_Y = 180;
+      const DEBUG_DRAW = true;
+      const DEBUG_ENTITY_BOXES = false;
+
+      function resetGame() {
+        score = 0;
+        gameWon = false;
+        lives = 5;
+        gameOver = false;
+        timeLeft = 60;
+        lastChimeSecond = 60;
+        message.textContent = "STAGE CLEAR";
+        message.style.opacity = "0";
+        tweetLink.style.display = "none";
+        thanksLink.style.display = "none";
+        coins.forEach((coin) => (coin.collected = false));
+        enemies.forEach((enemy) => {
+          enemy.alive = true;
+          enemy.dir = enemy.dir || 1;
+        });
+        respawnPlayer();
+      }
+
+      function respawnPlayer() {
+        player.x = 10;
+        player.y = 182;
+        player.vx = 0;
+        player.facing = 1;
+        player.vy = 0;
+        player.onGround = false;
+        player.dying = false;
+        player.deathTimer = 0;
+        player.animTime = 0;
+        player.stepCycle = 0;
+        player.landFlash = 0;
+        player.spawnIntro = false;
+        player.deathPhase = 0;
+        player.deathHold = 0;
+        player.missSoundPlayed = false;
+        player.missVisualTimer = 0;
+        player.missGameOver = false;
+      }
+
+      function missPlayer() {
+        playMissJingle();
+        lives = Math.max(0, lives - 1);
+        if (lives === 0) {
+          gameOver = true;
+          player.dying = false;
+          player.vx = 0;
+          player.vy = 0;
+          message.textContent = "GAME OVER";
+          message.style.opacity = "1";
+          tweetLink.style.display = "none";
+          thanksLink.style.display = "inline-block";
+          return;
+        }
+        respawnPlayer();
+      }
+
+      function startEnemyMiss() {
+        playMissJingle();
+        lives = Math.max(0, lives - 1);
+        player.dying = true;
+        player.deathTimer = 0;
+        player.deathPhase = 2;
+        player.missGameOver = lives === 0;
+        player.onGround = false;
+        player.vx = player.facing * -120;
+        player.vy = 120;
+      }
+
+      function intersects(a, b) {
+        return (
+          a.x < b.x + b.w &&
+          a.x + a.w > b.x &&
+          a.y < b.y + b.h &&
+          a.y + a.h > b.y
+        );
+      }
+
+      function clamp(v, min, max) {
+        return Math.max(min, Math.min(max, v));
+      }
+
+      function update() {
+        const now = performance.now();
+        const dt = Math.min(1 / 30, (now - lastTime) / 1000);
+        lastTime = now;
+        player.animTime += dt;
+        brakeSoundCooldown = Math.max(0, brakeSoundCooldown - dt);
+        jetSoundCooldown = Math.max(0, jetSoundCooldown - dt);
+
+        if (!gameWon && !gameOver) {
+          timeLeft = Math.max(0, timeLeft - dt);
+          const currentSecond = Math.ceil(timeLeft);
+          if (currentSecond < 10 && currentSecond > 0 && currentSecond !== lastChimeSecond) {
+            playTimeChime();
+            lastChimeSecond = currentSecond;
+          }
+          if (timeLeft <= 0) {
+            gameOver = true;
+            player.vx = 0;
+            player.vy = 0;
+            message.textContent = "TIME UP";
+            message.style.opacity = "1";
+            tweetLink.style.display = "none";
+            thanksLink.style.display = "inline-block";
+          }
+          if (gameOver) {
+            // Draw the current frame with the TIME UP message.
+          } else if (!player.dying) {
+            const moveSpeed = player.onGround ? groundMoveSpeed : airMoveSpeed;
+            const inputDir = keys.left && !keys.right ? -1 : keys.right && !keys.left ? 1 : 0;
+            const wasBraking = player.onGround && inputDir !== 0 && Math.abs(player.vx) > 60 && Math.sign(player.vx) !== inputDir;
+            if (wasBraking && brakeSoundCooldown <= 0) {
+              playBrakeSound();
+              brakeSoundCooldown = 0.11;
+            }
+            if (keys.left) {
+              player.vx -= moveSpeed * dt;
+              player.facing = -1;
+            }
+            if (keys.right) {
+              player.vx += moveSpeed * dt;
+              player.facing = 1;
+            }
+            player.vx *= wasBraking ? 0.9 : (player.onGround ? groundFriction : airFriction);
+            if (player.onGround && Math.abs(player.vx) < 36 && (keys.left || keys.right)) {
+              player.vx = Math.sign(keys.right ? 1 : -1) * 36;
+            } else if (!player.onGround && Math.abs(player.vx) < 30 && (keys.left || keys.right)) {
+              player.vx = Math.sign(keys.right ? 1 : -1) * 42;
+            }
+            player.vx = clamp(player.vx, -maxSpeed, maxSpeed);
+            if (Math.abs(player.vx) > maxSpeed * 0.9 && jetSoundCooldown <= 0) {
+              playJetMetalSound();
+              jetSoundCooldown = 0.7;
+            }
+            if (keys.jump && player.onGround) {
+              player.vy = -jumpSpeed;
+              player.onGround = false;
+              playJumpSound();
+            }
+          } else if (player.dying) {
+            player.deathTimer += dt;
+            player.vy += gravity * dt;
+            player.x += player.vx * dt;
+            player.y += player.vy * dt;
+            if (player.deathTimer >= 0.9 || player.y - CAMERA_Y > canvas.height + 120) {
+              if (player.missGameOver) {
+                gameOver = true;
+                player.dying = false;
+                player.vx = 0;
+                player.vy = 0;
+                message.textContent = "GAME OVER";
+                message.style.opacity = "1";
+                tweetLink.style.display = "none";
+                thanksLink.style.display = "inline-block";
+              } else {
+                respawnPlayer();
+              }
+            }
+            draw();
+            requestAnimationFrame(update);
+            return;
+          } else {
+            player.vx *= 0.98;
+            if (player.vy < 520) {
+              player.vy += gravity * dt;
+            }
+          }
+
+          const prevX = player.x;
+          const prevY = player.y;
+          if (!player.dying || player.deathPhase >= 2) {
+            player.vy += gravity * dt;
+          }
+          player.x += player.vx * dt;
+          player.y += player.vy * dt;
+
+          const wasOnGround = player.onGround;
+          player.onGround = false;
+          const playerBox = { x: player.x, y: player.y, w: player.w, h: player.h };
+
+          if (!player.dying) {
+            for (const platform of platforms) {
+              const platformBox = { x: platform.x, y: platform.y, w: platform.w, h: platform.h };
+              if (!intersects(playerBox, platformBox)) continue;
+              const prevBottom = prevY + player.h;
+              const currBottom = player.y + player.h;
+              const prevTop = prevY;
+              const currTop = player.y;
+              const prevRight = prevX + player.w;
+              const prevLeft = prevX;
+              const onTop =
+                player.vy >= 0 &&
+                prevBottom <= platform.y + 12 &&
+                currBottom >= platform.y - 2;
+              const onBottom =
+                player.vy < 0 &&
+                prevTop >= platform.y + platform.h - 4 &&
+                currTop <= platform.y + platform.h;
+              const fromLeft = prevRight <= platform.x + 2;
+              const fromRight = prevLeft >= platform.x + platform.w - 2;
+
+              if (onTop) {
+                player.y = platform.y - player.h;
+                player.vy = 0;
+                player.onGround = true;
+                if (player.spawnIntro) {
+                  player.spawnIntro = false;
+                  player.vx = 0;
+                  player.stepCycle = 0;
+                }
+              } else if (onBottom) {
+                player.y = platform.y + platform.h;
+                player.vy = 0;
+              } else if (fromLeft && !player.onGround) {
+                player.x = platform.x - player.w;
+                player.vx = 0;
+              } else if (fromRight && !player.onGround) {
+                player.x = platform.x + platform.w;
+                player.vx = 0;
+              } else if (!player.onGround && player.x + player.w / 2 < platform.x + platform.w / 2) {
+                player.x = platform.x - player.w;
+                player.vx = 0;
+              } else if (!player.onGround) {
+                player.x = platform.x + platform.w;
+                player.vx = 0;
+              }
+              playerBox.x = player.x;
+              playerBox.y = player.y;
+            }
+          }
+          if (!wasOnGround && player.onGround) {
+            player.landFlash = 0.12;
+          }
+          if (player.landFlash > 0) {
+            player.landFlash = Math.max(0, player.landFlash - dt);
+          }
+          if (player.onGround && Math.abs(player.vx) > 10) {
+            player.stepCycle += dt * (Math.abs(player.vx) / maxSpeed) * 10;
+          }
+
+          for (const coin of coins) {
+            if (coin.collected) continue;
+            const coinBox = { x: coin.x - 12, y: coin.y - 12, w: 24, h: 24 };
+            if (intersects(playerBox, coinBox)) {
+              coin.collected = true;
+              score += 100;
+              playCoinSound();
+            }
+          }
+
+          if (!player.dying) {
+            for (const enemy of enemies) {
+              if (!enemy.alive) continue;
+              enemy.x += enemy.dir * 60 * dt;
+              if (enemy.x < enemy.xStart) {
+                enemy.x = enemy.xStart;
+                enemy.dir = 1;
+              } else if (enemy.x > enemy.xEnd) {
+                enemy.x = enemy.xEnd;
+                enemy.dir = -1;
+              }
+              const enemyBox = { x: enemy.x, y: enemy.y, w: enemy.w, h: enemy.h };
+              if (intersects(playerBox, enemyBox)) {
+                if (player.vy > 0 && player.y + player.h - enemy.y < 18) {
+                  enemy.alive = false;
+                  score += 200;
+                  player.vy = -jumpSpeed * 0.65;
+                  playStompSound();
+                } else {
+                  startEnemyMiss();
+                  break;
+                }
+              }
+            }
+          }
+
+          if (!player.dying && player.y > 640) {
+            missPlayer();
+          }
+
+          if (!player.dying && player.x + player.w > flag.x && player.y + player.h > flag.y - flag.h) {
+            gameWon = true;
+            score += 1000;
+            const pagesUrl = "https://KG-NINJA.github.io/MarineoThiefRun/";
+            const tweetText = `Marineo Thief Run clear! SCORE ${score.toString().padStart(6, "0")} ${pagesUrl}`;
+            tweetLink.href = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}&url=${encodeURIComponent(pagesUrl)}`;
+            tweetLink.style.display = "inline-block";
+            thanksLink.style.display = "none";
+            message.style.opacity = "1";
+          }
+        }
+
+        draw();
+        requestAnimationFrame(update);
+      }
+
+      function drawPixelRect(x, y, w, h, fill, stroke) {
+        ctx.fillStyle = fill;
+        ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+        if (stroke) {
+          ctx.strokeStyle = stroke;
+          ctx.strokeRect(Math.round(x) + 0.5, Math.round(y) + 0.5, Math.round(w) - 1, Math.round(h) - 1);
+        }
+      }
+
+      function drawCoin(x, y) {
+        const spin = Math.floor(performance.now() / 90) % 4;
+        const w = [14, 9, 4, 9][spin];
+        const left = Math.round(x - w / 2);
+        ctx.fillStyle = "#a06d1b";
+        ctx.fillRect(left - 1, y - 10, w + 2, 20);
+        ctx.fillStyle = "#ffe07a";
+        ctx.fillRect(left, y - 9, w, 18);
+        ctx.fillStyle = "#fff8d0";
+        ctx.fillRect(left + 2, y - 7, Math.max(1, Math.floor(w / 4)), 12);
+        ctx.fillStyle = "#f0c14b";
+        ctx.fillRect(left + 1, y - 7, Math.max(1, w - 2), 1);
+        ctx.fillRect(left + 1, y + 6, Math.max(1, w - 2), 1);
+      }
+
+      function drawEnemy(enemy) {
+        const blink = Math.floor(performance.now() / 140) % 2 === 0;
+        const sway = Math.sin(performance.now() / 220 + enemy.x * 0.01) * 1.2;
+        const walk = Math.floor(performance.now() / 130 + enemy.x * 0.05) % 2;
+        const footA = walk === 0 ? 0 : 2;
+        const footB = walk === 0 ? 2 : 0;
+        if (enemy.kind === "rat") {
+          ctx.fillStyle = "#5b3a2f";
+          ctx.fillRect(enemy.x + 1, enemy.y + 13 + walk, 28, 10);
+          ctx.fillStyle = "#8d695b";
+          ctx.fillRect(enemy.x + 3, enemy.y + 8 + walk, 18, 11);
+          ctx.fillStyle = "#f1cfa2";
+          ctx.fillRect(enemy.x + 18, enemy.y + 8 + walk, 7, 4);
+          ctx.fillStyle = "#2d1b14";
+          ctx.fillRect(enemy.x + 6, enemy.y + 10 + walk, 3, 3);
+          ctx.fillRect(enemy.x + 14, enemy.y + 10 + walk, 3, 3);
+          ctx.fillStyle = "#c29b84";
+          ctx.fillRect(enemy.x - 3, enemy.y + 15 + footA, 6, 2);
+          ctx.fillRect(enemy.x + 24, enemy.y + 15 + footB, 6, 2);
+        } else if (enemy.kind === "guard") {
+          ctx.fillStyle = "#334f7d";
+          ctx.fillRect(enemy.x + 4, enemy.y + 4 + walk, 22, 22);
+          ctx.fillStyle = "#eef3f8";
+          ctx.fillRect(enemy.x + 6, enemy.y + 2 + walk, 18, 6);
+          ctx.fillStyle = blink ? "#ffffff" : "#bfd2ee";
+          ctx.fillRect(enemy.x + 8, enemy.y + 8 + walk, 14, 10);
+          ctx.fillStyle = "#2e1a14";
+          ctx.fillRect(enemy.x + 10, enemy.y + 10 + walk, 3, 3);
+          ctx.fillRect(enemy.x + 17, enemy.y + 10 + walk, 3, 3);
+          ctx.fillStyle = "#9c322d";
+          ctx.fillRect(enemy.x + 7, enemy.y + 19 + walk, 16, 5);
+          ctx.fillStyle = "#ddb25a";
+          ctx.fillRect(enemy.x + 8, enemy.y + 24 + footA, 6, 4);
+          ctx.fillRect(enemy.x + 16, enemy.y + 24 + footB, 6, 4);
+        } else {
+          ctx.fillStyle = "#6b3a1f";
+          ctx.fillRect(enemy.x + 5, enemy.y + 5 + walk, 20, 19);
+          ctx.fillStyle = blink ? "#ff7d4d" : "#ff9a59";
+          ctx.fillRect(enemy.x + 3, enemy.y + 2 + walk, 24, 13);
+          ctx.fillStyle = "#fff1c8";
+          ctx.fillRect(enemy.x + 9, enemy.y + 5 + walk, 10, 5);
+          ctx.fillStyle = "#2c1a13";
+          ctx.fillRect(enemy.x + 10, enemy.y + 7 + walk, 2, 2);
+          ctx.fillRect(enemy.x + 16, enemy.y + 7 + walk, 2, 2);
+          ctx.fillStyle = "#8d4b28";
+          ctx.fillRect(enemy.x + 4, enemy.y + 23 + footA, 6, 4);
+          ctx.fillRect(enemy.x + 18, enemy.y + 23 + footB, 6, 4);
+          ctx.fillStyle = "#ffd36a";
+          ctx.fillRect(enemy.x + 1, enemy.y + 11 + sway, 3, 8);
+        }
+      }
+
+      function drawPlayer() {
+        const x = Math.round(player.x);
+        const y = Math.round(player.y);
+        if (player.dying) {
+          if (playerSheetReady) {
+            const frameW = Math.floor(playerSheet.naturalWidth / 4);
+            const frameH = Math.floor(playerSheet.naturalHeight / 3);
+            const facing = player.facing < 0 ? -1 : 1;
+            const sourceCol = facing < 0 ? 2 : 0;
+            const drawW = 48;
+            const drawH = 48;
+            const drawX = Math.round(x + player.w / 2 - drawW / 2);
+            const drawY = Math.round(y + player.h - drawH + 4);
+            ctx.save();
+            ctx.translate(drawX + drawW / 2, drawY + drawH / 2);
+            ctx.rotate((player.deathTimer * 7 + 0.45) * facing);
+            ctx.globalAlpha = Math.max(0.35, 1 - player.deathTimer * 0.55);
+            ctx.drawImage(playerSheet, sourceCol * frameW, 2 * frameH, frameW, frameH, -drawW / 2, -drawH / 2, drawW, drawH);
+            ctx.restore();
+          } else {
+            const pulse = 0.5 + Math.sin(performance.now() / 70) * 0.5;
+            ctx.fillStyle = `rgba(255, 255, 255, ${0.1 + pulse * 0.15})`;
+            ctx.fillRect(x + 4, y + 22, 20, 3);
+            ctx.fillStyle = `rgba(255, 190, 120, ${0.08 + pulse * 0.08})`;
+            ctx.fillRect(x + 8, y + 12, 12, 8);
+          }
+          return;
+        }
+
+        const skin = "#ffd0a8";
+        const hood = "#5a3680";
+        const cloak = "#8a63a7";
+        const belt = "#e0b24f";
+        const boots = "#6b4131";
+        const facing = Math.abs(player.vx) > 5 ? (player.vx < 0 ? -1 : 1) : player.facing;
+        const run = Math.sin(player.stepCycle * 2.4);
+        const bob = player.onGround ? Math.round(Math.abs(run) * 2) : 0;
+        const legForward = run > 0;
+        const jumpTilt = player.onGround ? 0 : (player.vy < 0 ? -1 : 1);
+        const cloakLift = player.onGround ? 0 : 3;
+        const dash = Math.min(5, Math.abs(player.vx) / 100);
+        const activeRunInput = (keys.left || keys.right) && Math.abs(player.vx) > 70;
+        const runFrame = activeRunInput ? Math.min(3, Math.floor((player.stepCycle * 8) % 4)) : 0;
+        const animFrame = !player.onGround ? (player.vy < 0 ? 2 : 3) : (activeRunInput ? runFrame : 0);
+        if (playerSheetReady) {
+          const frameW = Math.floor(playerSheet.naturalWidth / 4);
+          const frameH = Math.floor(playerSheet.naturalHeight / 3);
+          const sourceRow = !player.onGround ? 2 : (facing < 0 ? 1 : 0);
+          const safeRightRunFrames = [0, 1, 3, 1];
+          const sourceCol = !player.onGround
+            ? (facing < 0 ? (player.vy < 0 ? 2 : 3) : (player.vy < 0 ? 0 : 1))
+            : (activeRunInput ? (facing < 0 ? runFrame : safeRightRunFrames[runFrame]) : 0);
+          const drawW = 48;
+          const drawH = 48;
+          const drawX = Math.round(x + player.w / 2 - drawW / 2 + (facing < 0 ? 1 : 0));
+          const drawY = Math.round(y + player.h - drawH + (facing < 0 ? 7 : 4));
+          const speedRatio = Math.min(1, Math.abs(player.vx) / maxSpeed);
+          if (speedRatio > 0.75 && activeRunInput) {
+            const shake = Math.round(Math.sin(performance.now() / 18) * 4);
+            const trailDir = facing < 0 ? 1 : -1;
+            ctx.save();
+            ctx.globalAlpha = 0.38;
+            ctx.filter = "brightness(1.3) saturate(1.35)";
+            ctx.drawImage(
+              playerSheet,
+              sourceCol * frameW,
+              sourceRow * frameH,
+              frameW,
+              frameH,
+              drawX + trailDir * 9 + shake,
+              drawY,
+              drawW,
+              drawH
+            );
+            ctx.globalAlpha = 0.24;
+            ctx.drawImage(
+              playerSheet,
+              sourceCol * frameW,
+              sourceRow * frameH,
+              frameW,
+              frameH,
+              drawX + trailDir * 18 - shake,
+              drawY + 1,
+              drawW,
+              drawH
+            );
+            ctx.globalAlpha = 0.14;
+            ctx.drawImage(
+              playerSheet,
+              sourceCol * frameW,
+              sourceRow * frameH,
+              frameW,
+              frameH,
+              drawX + trailDir * 28 + shake,
+              drawY + 2,
+              drawW,
+              drawH
+            );
+            ctx.filter = "none";
+            ctx.fillStyle = "rgba(180, 245, 255, 0.55)";
+            ctx.fillRect(drawX + player.w / 2 - trailDir * 6, drawY + 34, trailDir * -22, 2);
+            ctx.fillRect(drawX + player.w / 2 - trailDir * 2, drawY + 40, trailDir * -16, 2);
+            ctx.restore();
+          }
+          ctx.drawImage(
+            playerSheet,
+            sourceCol * frameW,
+            sourceRow * frameH,
+            frameW,
+            frameH,
+            drawX,
+            drawY,
+            drawW,
+            drawH
+          );
+          return;
+        }
+
+        if (spriteCache.playerIdle) {
+          const frames = spriteCache.playerRun || [];
+          const sprite = !player.onGround
+            ? (player.vy < 0 ? spriteCache.playerJump : spriteCache.playerFall)
+            : (Math.abs(player.vx) > 40 && frames[animFrame] ? frames[animFrame] : spriteCache.playerIdle);
+          ctx.drawImage(sprite, x, y, player.w, player.h);
+          return;
+        }
+
+        if (player.landFlash > 0) {
+          ctx.fillStyle = "rgba(255,255,255,0.32)";
+          ctx.fillRect(x + 2, y + 28 + bob, 24, 3);
+        }
+
+        ctx.fillStyle = "#261722";
+        ctx.fillRect(x + 6 - dash, y + 1 + jumpTilt, 16 + dash * 2, 28);
+        ctx.fillStyle = hood;
+        ctx.fillRect(x + 5, y + 2 + jumpTilt, 18, 15);
+        ctx.fillStyle = skin;
+        ctx.fillRect(x + 8, y + 6 + jumpTilt, 12, 7);
+        ctx.fillStyle = "#3b1b12";
+        ctx.fillRect(x + 10, y + 9 + jumpTilt, 2, 2);
+        ctx.fillRect(x + 16, y + 9 + jumpTilt, 2, 2);
+        ctx.fillStyle = "#2a1520";
+        ctx.fillRect(x + 11, y + 13 + jumpTilt, 5, 2);
+        ctx.fillStyle = cloak;
+        ctx.fillRect(x + 3, y + 10 + jumpTilt, 22, 10);
+        ctx.fillRect(x + 1, y + 14 + jumpTilt + cloakLift, 7, 14 - cloakLift);
+        ctx.fillRect(x + 20, y + 14 + jumpTilt + cloakLift, 7, 14 - cloakLift);
+        ctx.fillStyle = belt;
+        ctx.fillRect(x + 6, y + 16 + jumpTilt, 16, 4);
+        ctx.fillStyle = "#b8eef5";
+        ctx.fillRect(x + 13, y + 18 + jumpTilt, 3, 3);
+        ctx.fillStyle = boots;
+        ctx.fillRect(x + 7, y + (legForward ? 25 : 26) + jumpTilt, 5, 6);
+        ctx.fillRect(x + 16, y + (legForward ? 26 : 25) + jumpTilt, 5, 6);
+        ctx.fillStyle = skin;
+        ctx.fillRect(x + 10, y + 22 + jumpTilt, 4, 4);
+        ctx.fillRect(x + 16, y + 22 + jumpTilt, 4, 4);
+        ctx.fillStyle = "#45243a";
+        ctx.fillRect(x + 4, y + 15 + jumpTilt, 4, 2);
+        ctx.fillRect(x + 20, y + 15 + jumpTilt, 4, 2);
+        if (!player.onGround) {
+          ctx.fillStyle = "rgba(255,255,255,0.45)";
+          ctx.fillRect(x + 2, y + 29 + jumpTilt, 24, 2);
+        }
+      }
+
+      function drawBackground(cameraX, cameraY) {
+        ctx.fillStyle = "#12111e";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (spriteCache.sky) {
+          ctx.drawImage(spriteCache.sky, 0, 0, canvas.width, canvas.height);
+        }
+        const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        sky.addColorStop(0, "#24356a");
+        sky.addColorStop(0.48, "#36517e");
+        sky.addColorStop(1, "#11131d");
+        ctx.fillStyle = sky;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = "#f0f4ff";
+        ctx.fillRect(canvas.width * 0.76, 42, 2, 2);
+        ctx.fillRect(canvas.width * 0.785, 54, 2, 2);
+        ctx.fillRect(canvas.width * 0.81, 40, 2, 2);
+        ctx.fillRect(canvas.width * 0.82, 58, 2, 2);
+        ctx.fillStyle = "#fff0a6";
+        ctx.beginPath();
+        ctx.arc(canvas.width * 0.84, 70, 24, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#253a6b";
+        ctx.beginPath();
+        ctx.arc(canvas.width * 0.855, 64, 24, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#44648a";
+        for (let i = 0; i < 8; i++) {
+          const sx = ((i * 240) - cameraX * 0.08) % (canvas.width + 280) - 140;
+          ctx.fillRect(sx, 126 + (i % 3) * 8, 96, 78);
+          ctx.fillStyle = "#6f8bb0";
+          ctx.fillRect(sx + 14, 112, 68, 22);
+          ctx.fillStyle = "#44648a";
+          ctx.fillRect(sx + 36, 140, 24, 18);
+        }
+
+        ctx.fillStyle = "#6b865f";
+        for (let i = 0; i < 5; i++) {
+          const sx = ((i * 360) - cameraX * 0.18) % (canvas.width + 360) - 180;
+          ctx.fillRect(sx, 250 + (i % 2) * 16, 148, 126);
+          ctx.fillStyle = "#98b67e";
+          ctx.fillRect(sx + 22, 228, 96, 34);
+          ctx.fillStyle = "#6b865f";
+        }
+
+        ctx.fillStyle = "#272235";
+        ctx.fillRect(0, canvas.height - 74, canvas.width, 74);
+        ctx.fillStyle = "#7a5a3e";
+        for (let x = -((cameraX * 0.22) % 40); x < canvas.width; x += 40) {
+          ctx.fillRect(x, canvas.height - 22, 30, 4);
+        }
+        ctx.fillStyle = "#3f2e1f";
+        ctx.fillRect(0, canvas.height - 30, canvas.width, 6);
+        ctx.fillStyle = "#574230";
+        for (let x = -((cameraX * 0.3) % 24); x < canvas.width; x += 24) {
+          ctx.fillRect(x, canvas.height - 18, 14, 2);
+        }
+      }
+
+      function draw() {
+        ctx.imageSmoothingEnabled = false;
+        const cameraX = player.x - canvas.width * 0.36;
+        const cameraY = CAMERA_Y;
+        drawBackground(cameraX, cameraY);
+
+        ctx.save();
+        ctx.translate(-cameraX, -cameraY);
+
+        for (const platform of platforms) {
+          const isFloor = platform.type === "ground" || platform.type === "stone";
+          if (!isFloor) continue;
+          const h = platform.type === "ground" ? platform.h : platform.h;
+          const fill = platform.type === "ground" ? "#6b4b34" : "#a57b49";
+          const stroke = platform.type === "ground" ? "#342314" : "#4a3118";
+          drawPixelRect(platform.x, platform.y, platform.w, h, fill, stroke);
+          ctx.fillStyle = platform.type === "ground" ? "#947054" : "#f0cb78";
+          ctx.fillRect(platform.x + 2, platform.y + 2, platform.w - 4, 4);
+          ctx.fillStyle = platform.type === "ground" ? "#4d3423" : "#7b4f24";
+          for (let x = platform.x + 5; x < platform.x + platform.w - 6; x += 14) {
+            ctx.fillRect(x, platform.y + 7, 3, 3);
+          }
+          if (DEBUG_DRAW) {
+            ctx.strokeStyle = platform.type === "ground" ? "rgba(0,255,180,0.9)" : "rgba(0,180,255,0.9)";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(platform.x + 0.5, platform.y + 0.5, platform.w - 1, platform.h - 1);
+          }
+        }
+
+        for (const coin of coins) {
+          if (!coin.collected) drawCoin(coin.x, coin.y);
+        }
+        for (const enemy of enemies) {
+          if (enemy.alive) drawEnemy(enemy);
+        }
+
+        if (spriteCache.flag) {
+          ctx.drawImage(spriteCache.flag, flag.x - 8, flag.y - flag.h, 72, flag.h + 10);
+        } else {
+          ctx.fillStyle = "#b0824c";
+          ctx.fillRect(flag.x, flag.y - flag.h, 4, flag.h);
+          ctx.fillStyle = "#ffe08a";
+          ctx.fillRect(flag.x + 4, flag.y - flag.h + 10, 28, 18);
+          ctx.fillStyle = "#8b643b";
+          ctx.fillRect(flag.x + 4, flag.y - flag.h + 10, 28, 4);
+          ctx.fillStyle = "#fff0a8";
+          ctx.fillRect(flag.x + 4, flag.y - 16, 18, 16);
+        }
+
+        drawPlayer();
+
+        if (DEBUG_DRAW && DEBUG_ENTITY_BOXES) {
+          ctx.strokeStyle = "rgba(255,80,80,0.95)";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(player.x + 0.5, player.y + 0.5, player.w - 1, player.h - 1);
+          ctx.fillStyle = "rgba(255,80,80,0.9)";
+          ctx.fillRect(player.x + player.w / 2 - 2, player.y + player.h - 2, 4, 4);
+          for (const enemy of enemies) {
+            if (!enemy.alive) continue;
+            ctx.strokeStyle = "rgba(255,200,0,0.8)";
+            ctx.strokeRect(enemy.x + 0.5, enemy.y + 0.5, enemy.w - 1, enemy.h - 1);
+          }
+        }
+
+        ctx.restore();
+
+        ctx.fillStyle = "rgba(255,245,210,0.9)";
+        ctx.font = "16px monospace";
+        ctx.textBaseline = "top";
+        ctx.fillText(
+          `SCORE ${score.toString().padStart(6, "0")}   LIVES ${String(lives).padStart(2, "0")}   TIME ${String(Math.ceil(timeLeft)).padStart(2, "0")}`,
+          16,
+          72
+        );
+      }
+
+      resetGame();
+      update();
+    </script>
+  </body>
+</html>
