@@ -757,7 +757,7 @@
             gameWon = true;
             score += 1000;
             const pagesUrl = "https://KG-NINJA.github.io/MarineoThiefRun/";
-            const tweetText = `Marineo Thief Run clear! SCORE ${score.toString().padStart(6, "0")} ${pagesUrl}`;
+            const tweetText = `Marineo Thief Run clear! SCORE ${score.toString().padStart(6, "0")} #KGNINJA`;
             tweetLink.href = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}&url=${encodeURIComponent(pagesUrl)}`;
             tweetLink.style.display = "inline-block";
             thanksLink.style.display = "none";
@@ -902,51 +902,40 @@
           const drawX = Math.round(x + player.w / 2 - drawW / 2 + (facing < 0 ? 1 : 0));
           const drawY = Math.round(y + player.h - drawH + (facing < 0 ? 7 : 4));
           const speedRatio = Math.min(1, Math.abs(player.vx) / maxSpeed);
-          if (speedRatio > 0.75 && activeRunInput) {
-            const shake = Math.round(Math.sin(performance.now() / 18) * 4);
+          if (speedRatio > 0.75) {
             const trailDir = facing < 0 ? 1 : -1;
+            const shimmer = Math.sin(performance.now() / 32) * 1.5;
             ctx.save();
-            ctx.globalAlpha = 0.38;
-            ctx.filter = "brightness(1.3) saturate(1.35)";
-            ctx.drawImage(
-              playerSheet,
-              sourceCol * frameW,
-              sourceRow * frameH,
-              frameW,
-              frameH,
-              drawX + trailDir * 9 + shake,
-              drawY,
-              drawW,
-              drawH
-            );
-            ctx.globalAlpha = 0.24;
-            ctx.drawImage(
-              playerSheet,
-              sourceCol * frameW,
-              sourceRow * frameH,
-              frameW,
-              frameH,
-              drawX + trailDir * 18 - shake,
-              drawY + 1,
-              drawW,
-              drawH
-            );
-            ctx.globalAlpha = 0.14;
-            ctx.drawImage(
-              playerSheet,
-              sourceCol * frameW,
-              sourceRow * frameH,
-              frameW,
-              frameH,
-              drawX + trailDir * 28 + shake,
-              drawY + 2,
-              drawW,
-              drawH
-            );
+            ctx.filter = "brightness(1.45) saturate(1.1) hue-rotate(18deg)";
+            const trails = [
+              { offset: 9, alpha: 0.24, scale: 1.02, y: 0 },
+              { offset: 18, alpha: 0.16, scale: 0.98, y: 1 },
+              { offset: 30, alpha: 0.09, scale: 0.94, y: 2 },
+              { offset: 43, alpha: 0.045, scale: 0.9, y: 3 }
+            ];
+            for (const trail of trails) {
+              const w = drawW * trail.scale;
+              const h = drawH * trail.scale;
+              ctx.globalAlpha = trail.alpha * speedRatio;
+              ctx.drawImage(
+                playerSheet,
+                sourceCol * frameW,
+                sourceRow * frameH,
+                frameW,
+                frameH,
+                drawX + trailDir * trail.offset + shimmer - (w - drawW) / 2,
+                drawY + trail.y - (h - drawH) / 2,
+                w,
+                h
+              );
+            }
             ctx.filter = "none";
-            ctx.fillStyle = "rgba(180, 245, 255, 0.55)";
-            ctx.fillRect(drawX + player.w / 2 - trailDir * 6, drawY + 34, trailDir * -22, 2);
-            ctx.fillRect(drawX + player.w / 2 - trailDir * 2, drawY + 40, trailDir * -16, 2);
+            ctx.globalAlpha = 1;
+            const lineStart = drawX + player.w / 2 - trailDir * 4;
+            ctx.fillStyle = "rgba(180, 245, 255, 0.42)";
+            ctx.fillRect(lineStart, drawY + 33, trailDir * -34, 2);
+            ctx.fillStyle = "rgba(255, 245, 170, 0.3)";
+            ctx.fillRect(lineStart, drawY + 39, trailDir * -24, 1);
             ctx.restore();
           }
           ctx.drawImage(
